@@ -1,0 +1,12 @@
+target/
+health.db
+health.db-shm
+health.db-wal
+*.log
+tests/
+.git/
+.gitignore
+Dockerfile
+README.md
+/test_export
+

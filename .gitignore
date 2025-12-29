@@ -1,0 +1,11 @@
+/target
+/target/
+health.db
+health.db-shm
+health.db-wal
+*.log
+tmp_test/
+.DS_Store
+/test_export
+/tests/sample_export
+

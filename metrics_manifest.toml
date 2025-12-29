@@ -1,0 +1,499 @@
+# metrics_manifest.toml
+# "Digital Physiologist" Master Configuration
+# --------------------------------------------------------
+# DEFINITION: A schema-on-read configuration for Apple Health ETL.
+# PURPOSE: Ingests XML streams, CSV ECGs, and GPX Routes into a relational SQLite DB.
+
+# ==========================================
+# 1. GLOBAL PIPELINE SETTINGS
+# ==========================================
+[settings]
+# Performance: Number of rows to buffer before writing to disk
+batch_size = 5000 
+
+# Timezone: Standardize everything to UTC to prevent "Ghost Rows" during travel
+timezone = "UTC"
+
+# External Folders: The parser will scan these directories for side-car files
+import_dirs = ["electrocardiograms", "workout-routes"]
+
+[user_profile]
+# Used for Heart Rate Zone calculations (Z1-Z5)
+# Default formula: 220 - age
+max_heart_rate = 190
+resting_heart_rate = 60
+
+# ==========================================
+# 2. THE SESSION LAYER (Workouts)
+# ==========================================
+[tables.workouts]
+description = "Exercise Session Summaries"
+
+    # --- MAIN ATTRIBUTES (Found directly in <Workout ...>) ---
+
+    [[tables.workouts.columns]]
+    field_name = "session_id"
+    hk_attribute = "startDate"
+    data_type = "DATETIME"
+    is_primary_key = true
+    extraction_source = "attribute" 
+
+    [[tables.workouts.columns]]
+    field_name = "activity_type"
+    hk_attribute = "workoutActivityType"
+    data_type = "TEXT"
+    extraction_source = "attribute"
+
+    [[tables.workouts.columns]]
+    field_name = "duration_minutes"
+    hk_attribute = "duration"
+    data_type = "REAL"
+    extraction_source = "attribute"
+
+    [[tables.workouts.columns]]
+    field_name = "source_name"
+    hk_attribute = "sourceName"
+    data_type = "TEXT"
+    extraction_source = "attribute"
+
+    [[tables.workouts.columns]]
+    field_name = "route_file"
+    hk_identifier = "FileReference"
+    data_type = "TEXT"
+    extraction_source = "route_ref" # New extraction source for nested route files
+
+    # --- STATISTICS (Found in <WorkoutStatistics type="..." sum="...">) ---
+
+    [[tables.workouts.columns]]
+    field_name = "active_calories"
+    hk_identifier = "HKQuantityTypeIdentifierActiveEnergyBurned"
+    data_type = "REAL"
+    extraction_source = "statistics_sum" # Logic: Find matching stat, grab 'sum'
+
+    [[tables.workouts.columns]]
+    field_name = "basal_calories"
+    hk_identifier = "HKQuantityTypeIdentifierBasalEnergyBurned"
+    data_type = "REAL"
+    extraction_source = "statistics_sum"
+
+    [[tables.workouts.columns]]
+    field_name = "distance_cycling"
+    hk_identifier = "HKQuantityTypeIdentifierDistanceCycling"
+    data_type = "REAL"
+    extraction_source = "statistics_sum"
+
+    [[tables.workouts.columns]]
+    field_name = "distance_walking"
+    hk_identifier = "HKQuantityTypeIdentifierDistanceWalkingRunning"
+    data_type = "REAL"
+    extraction_source = "statistics_sum"
+
+    [[tables.workouts.columns]]
+    field_name = "elevation_ascended"
+    hk_identifier = "HKElevationAscended"
+    data_type = "TEXT" # Stores "509 cm" - Parser can strip unit later
+    extraction_source = "metadata_value" # Logic: Find matching key, grab 'value'
+
+    [[tables.workouts.columns]]
+    field_name = "avg_mets"
+    hk_identifier = "HKAverageMETs"
+    data_type = "TEXT" 
+    extraction_source = "metadata_value"
+
+    [[tables.workouts.columns]]
+    field_name = "temperature"
+    hk_identifier = "HKWeatherTemperature"
+    data_type = "TEXT"
+    extraction_source = "metadata_value"
+
+    [[tables.workouts.columns]]
+    field_name = "humidity"
+    hk_identifier = "HKWeatherHumidity"
+    data_type = "TEXT"
+    extraction_source = "metadata_value"
+
+# ==========================================
+# 3. BODY METRICS & ANTHROPOMETRY
+# ==========================================
+[tables.body_metrics]
+description = "Physical attributes and body composition"
+
+    # Weight (Requested explicitly)
+    [[tables.body_metrics.columns]]
+    field_name = "weight_kg"
+    hk_identifier = "HKQuantityTypeIdentifierBodyMass"
+    data_type = "REAL"
+
+    # Height
+    [[tables.body_metrics.columns]]
+    field_name = "height_m"
+    hk_identifier = "HKQuantityTypeIdentifierHeight"
+    data_type = "REAL"
+
+# ==========================================
+# 4. VITALS & HEMODYNAMICS
+# ==========================================
+[tables.vitals]
+description = "Heart and Respiratory signals"
+
+    # Heart Rate (The engine of the system)
+    [[tables.vitals.columns]]
+    field_name = "heart_rate"
+    hk_identifier = "HKQuantityTypeIdentifierHeartRate"
+    data_type = "REAL"
+
+    # Resting Heart Rate (Recovery proxy)
+    [[tables.vitals.columns]]
+    field_name = "resting_hr"
+    hk_identifier = "HKQuantityTypeIdentifierRestingHeartRate"
+    data_type = "REAL"
+
+    # HRV SDNN (Nervous system balance)
+    [[tables.vitals.columns]]
+    field_name = "hrv_sdnn"
+    hk_identifier = "HKQuantityTypeIdentifierHeartRateVariabilitySDNN"
+    data_type = "REAL"
+
+    # Heart Rate Recovery (Fitness proxy)
+    [[tables.vitals.columns]]
+    field_name = "hr_recovery"
+    hk_identifier = "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute"
+    data_type = "REAL"
+
+    # VO2 Max (Cardio fitness)
+    [[tables.vitals.columns]]
+    field_name = "vo2_max"
+    hk_identifier = "HKQuantityTypeIdentifierVO2Max"
+    data_type = "REAL"
+
+    # Blood Oxygen
+    [[tables.vitals.columns]]
+    field_name = "oxygen_sat"
+    hk_identifier = "HKQuantityTypeIdentifierOxygenSaturation"
+    data_type = "REAL"
+
+    # Respiratory Rate (Breaths/min)
+    [[tables.vitals.columns]]
+    field_name = "resp_rate"
+    hk_identifier = "HKQuantityTypeIdentifierRespiratoryRate"
+    data_type = "REAL"
+
+# ==========================================
+# 5. ACTIVITY & LOAD
+# ==========================================
+[tables.activity]
+description = "Daily movement and energy expenditure"
+
+    # Steps
+    [[tables.activity.columns]]
+    field_name = "step_count"
+    hk_identifier = "HKQuantityTypeIdentifierStepCount"
+    data_type = "INTEGER"
+
+    # Distance Walking/Running
+    [[tables.activity.columns]]
+    field_name = "dist_walk_run"
+    hk_identifier = "HKQuantityTypeIdentifierDistanceWalkingRunning"
+    data_type = "REAL"
+
+    # Distance Cycling
+    [[tables.activity.columns]]
+    field_name = "dist_cycling"
+    hk_identifier = "HKQuantityTypeIdentifierDistanceCycling"
+    data_type = "REAL"
+
+    # Flights Climbed
+    [[tables.activity.columns]]
+    field_name = "flights_climbed"
+    hk_identifier = "HKQuantityTypeIdentifierFlightsClimbed"
+    data_type = "INTEGER"
+
+    # Active Calories (Output)
+    [[tables.activity.columns]]
+    field_name = "active_cals"
+    hk_identifier = "HKQuantityTypeIdentifierActiveEnergyBurned"
+    data_type = "REAL"
+
+    # Basal Calories (Metabolic Floor)
+    [[tables.activity.columns]]
+    field_name = "basal_cals"
+    hk_identifier = "HKQuantityTypeIdentifierBasalEnergyBurned"
+    data_type = "REAL"
+
+    # Exercise Minutes
+    [[tables.activity.columns]]
+    field_name = "exercise_time"
+    hk_identifier = "HKQuantityTypeIdentifierAppleExerciseTime"
+    data_type = "REAL"
+
+    # Stand Minutes
+    [[tables.activity.columns]]
+    field_name = "stand_time"
+    hk_identifier = "HKQuantityTypeIdentifierAppleStandTime"
+    data_type = "REAL"
+
+    # Physical Effort (METs - watchOS 10+)
+    [[tables.activity.columns]]
+    field_name = "physical_effort"
+    hk_identifier = "HKQuantityTypeIdentifierPhysicalEffort"
+    data_type = "REAL"
+
+# ==========================================
+# 5b. DAILY ACTIVITY SUMMARIES (Rings)
+# ==========================================
+[tables.activity_summaries]
+description = "Daily Activity Ring Status and Goals"
+
+    [[tables.activity_summaries.columns]]
+    field_name = "date"
+    hk_attribute = "dateComponents"
+    data_type = "TEXT"
+    is_primary_key = true
+    extraction_source = "attribute"
+
+    [[tables.activity_summaries.columns]]
+    field_name = "active_energy"
+    hk_attribute = "activeEnergyBurned"
+    data_type = "REAL"
+    extraction_source = "attribute"
+
+    [[tables.activity_summaries.columns]]
+    field_name = "active_energy_goal"
+    hk_attribute = "activeEnergyBurnedGoal"
+    data_type = "REAL"
+    extraction_source = "attribute"
+
+    [[tables.activity_summaries.columns]]
+    field_name = "exercise_time"
+    hk_attribute = "appleExerciseTime"
+    data_type = "REAL"
+    extraction_source = "attribute"
+
+    [[tables.activity_summaries.columns]]
+    field_name = "exercise_time_goal"
+    hk_attribute = "appleExerciseTimeGoal"
+    data_type = "REAL"
+    extraction_source = "attribute"
+
+    [[tables.activity_summaries.columns]]
+    field_name = "stand_hours"
+    hk_attribute = "appleStandHours"
+    data_type = "REAL"
+    extraction_source = "attribute"
+
+    [[tables.activity_summaries.columns]]
+    field_name = "stand_hours_goal"
+    hk_attribute = "appleStandHoursGoal"
+    data_type = "REAL"
+    extraction_source = "attribute"
+
+# ==========================================
+# 6. MOBILITY & GAIT HEALTH
+# ==========================================
+[tables.mobility]
+description = "Walking quality, balance, and fall risk"
+
+    [[tables.mobility.columns]]
+    field_name = "walking_speed"
+    hk_identifier = "HKQuantityTypeIdentifierWalkingSpeed"
+    data_type = "REAL"
+
+    [[tables.mobility.columns]]
+    field_name = "step_length"
+    hk_identifier = "HKQuantityTypeIdentifierWalkingStepLength"
+    data_type = "REAL"
+
+    [[tables.mobility.columns]]
+    field_name = "asymmetry_percent"
+    hk_identifier = "HKQuantityTypeIdentifierWalkingAsymmetryPercentage"
+    data_type = "REAL"
+
+    [[tables.mobility.columns]]
+    field_name = "double_support_percent"
+    hk_identifier = "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage"
+    data_type = "REAL"
+
+    [[tables.mobility.columns]]
+    field_name = "walking_steadiness"
+    hk_identifier = "HKQuantityTypeIdentifierAppleWalkingSteadiness"
+    data_type = "REAL"
+
+    [[tables.mobility.columns]]
+    field_name = "six_min_walk_dist"
+    hk_identifier = "HKQuantityTypeIdentifierSixMinuteWalkTestDistance"
+    data_type = "REAL"
+
+    [[tables.mobility.columns]]
+    field_name = "stair_ascent_speed"
+    hk_identifier = "HKQuantityTypeIdentifierStairAscentSpeed"
+    data_type = "REAL"
+
+    [[tables.mobility.columns]]
+    field_name = "stair_descent_speed"
+    hk_identifier = "HKQuantityTypeIdentifierStairDescentSpeed"
+    data_type = "REAL"
+
+# ==========================================
+# 7. SLEEP ARCHITECTURE
+# ==========================================
+[tables.sleep]
+description = "Sleep staging and nocturnal analysis"
+
+    # Sleep Stages (REM, Core, Deep, Awake)
+    # Note: Stored as Integers (mapping: 4=Deep, 5=REM)
+    [[tables.sleep.columns]]
+    field_name = "sleep_stage"
+    hk_identifier = "HKCategoryTypeIdentifierSleepAnalysis"
+    data_type = "INTEGER"
+
+    # Breathing Disturbances (Apnea proxy)
+    [[tables.sleep.columns]]
+    field_name = "breathing_disturbances"
+    hk_identifier = "HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances"
+    data_type = "REAL"
+
+    # Wrist Temperature Delta (Circadian rhythm)
+    [[tables.sleep.columns]]
+    field_name = "wrist_temp_delta"
+    hk_identifier = "HKQuantityTypeIdentifierAppleSleepingWristTemperature"
+    data_type = "REAL"
+
+# ==========================================
+# 8. NUTRITION & INTAKE
+# ==========================================
+[tables.nutrition]
+description = "Dietary logs"
+
+    [[tables.nutrition.columns]]
+    field_name = "caffeine_mg"
+    hk_identifier = "HKQuantityTypeIdentifierDietaryCaffeine"
+    data_type = "REAL"
+
+    [[tables.nutrition.columns]]
+    field_name = "water_ml"
+    hk_identifier = "HKQuantityTypeIdentifierDietaryWater"
+    data_type = "REAL"
+
+# ==========================================
+# 9. ENVIRONMENTAL HEALTH
+# ==========================================
+[tables.environment]
+description = "Audio exposure and sunlight"
+
+    [[tables.environment.columns]]
+    field_name = "audio_exposure"
+    hk_identifier = "HKQuantityTypeIdentifierEnvironmentalAudioExposure"
+    data_type = "REAL"
+
+    [[tables.environment.columns]]
+    field_name = "headphone_exposure"
+    hk_identifier = "HKQuantityTypeIdentifierHeadphoneAudioExposure"
+    data_type = "REAL"
+
+    [[tables.environment.columns]]
+    field_name = "sound_reduction"
+    hk_identifier = "HKQuantityTypeIdentifierEnvironmentalSoundReduction"
+    data_type = "REAL"
+
+    [[tables.environment.columns]]
+    field_name = "time_in_daylight"
+    hk_identifier = "HKQuantityTypeIdentifierTimeInDaylight"
+    data_type = "REAL"
+
+# ==========================================
+# 10. EVENTS & ALERTS
+# ==========================================
+[tables.events]
+description = "Discrete session markers"
+
+    [[tables.events.columns]]
+    field_name = "mindful_session"
+    hk_identifier = "HKCategoryTypeIdentifierMindfulSession"
+    data_type = "INTEGER"
+
+    [[tables.events.columns]]
+    field_name = "handwashing"
+    hk_identifier = "HKCategoryTypeIdentifierHandwashingEvent"
+    data_type = "INTEGER"
+
+    [[tables.events.columns]]
+    field_name = "stand_hour_fired"
+    hk_identifier = "HKCategoryTypeIdentifierAppleStandHour"
+    data_type = "INTEGER"
+    
+    [[tables.events.columns]]
+    field_name = "high_noise_event"
+    hk_identifier = "HKCategoryTypeIdentifierAudioExposureEvent"
+    data_type = "INTEGER"
+
+# ==========================================
+# 11. EXTERNAL SOURCE: ECG RECORDINGS
+# ==========================================
+# Ingests .csv files from "electrocardiograms/" folder
+[external_sources.ecg]
+folder = "electrocardiograms"
+file_pattern = "*.csv"
+target_table = "ecg_recordings"
+
+    # Header Metadata extraction
+    [[external_sources.ecg.metadata_map]]
+    csv_key = "Recorded Date"
+    db_column = "recorded_at"
+    data_type = "DATETIME"
+
+    [[external_sources.ecg.metadata_map]]
+    csv_key = "Sample Rate"
+    db_column = "sample_rate"
+    data_type = "TEXT"
+
+    [[external_sources.ecg.metadata_map]]
+    csv_key = "Classification"
+    db_column = "classification"
+    data_type = "TEXT"
+
+    [[external_sources.ecg.metadata_map]]
+    csv_key = "Device"
+    db_column = "device_info"
+    data_type = "TEXT"
+
+    # Raw Signal Storage
+    [external_sources.ecg.payload]
+    db_column = "voltage_samples"
+    data_type = "BLOB"
+    source_unit = "microvolts"
+
+# ==========================================
+# 12. EXTERNAL SOURCE: GPS ROUTES
+# ==========================================
+# Ingests .gpx files from "workout-routes/" folder
+# Independent data points that can be joined to Workouts via SQL
+[external_sources.routes]
+folder = "workout-routes"
+file_pattern = "*.gpx"
+target_table = "route_points"
+
+    # GPX Tag Mapping
+    [[external_sources.routes.columns]]
+    xml_tag = "time"
+    db_column = "timestamp"
+    data_type = "DATETIME"
+
+    [[external_sources.routes.columns]]
+    xml_tag = "lat"
+    db_column = "latitude"
+    data_type = "REAL"
+
+    [[external_sources.routes.columns]]
+    xml_tag = "lon"
+    db_column = "longitude"
+    data_type = "REAL"
+
+    [[external_sources.routes.columns]]
+    xml_tag = "ele"
+    db_column = "elevation"
+    data_type = "REAL"
+
+    [[external_sources.routes.columns]]
+    xml_tag = "speed"
+    db_column = "speed_ms"
+    data_type = "REAL"
