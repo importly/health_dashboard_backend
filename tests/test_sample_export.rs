@@ -52,7 +52,10 @@ async fn test_sample_export_ingestion() -> anyhow::Result<()> {
         let file = File::create(&ecg_path)?;
         let mut writer = BufWriter::new(file);
         // Headers matching metrics_manifest.toml
-        writeln!(writer, "Recorded Date,Sample Rate,Classification,Device,Lead,Unit")?;
+        writeln!(
+            writer,
+            "Recorded Date,Sample Rate,Classification,Device,Lead,Unit"
+        )?;
         writeln!(writer, "\"2024-01-01T12:00:00Z\",\"512 Hz\",\"Sinus Rhythm\",\"Apple Watch\",\"1\",\"microvolts\"")?;
         // Some sample data
         for i in 0..10 {
@@ -80,7 +83,7 @@ async fn test_sample_export_ingestion() -> anyhow::Result<()> {
     if Path::new(test_db_path).exists() {
         fs::remove_file(test_db_path)?;
     }
-    
+
     // Use the real manifest (assumed to exist in project root)
     let manifest_path = "metrics_manifest.toml";
     let (pool, manifest) = db::init_db(&db_url, manifest_path).await?;
