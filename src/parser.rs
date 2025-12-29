@@ -293,18 +293,16 @@ fn extract_record_data(
     let mut start_date = String::new();
     let mut end_date = String::new();
 
-    for attr in e.attributes() {
-        if let Ok(attr) = attr {
-            let key = attr.key.as_ref();
-            let val = String::from_utf8_lossy(&attr.value);
-            match key {
-                b"type" => hk_type = val.to_string(),
-                b"value" => value = val.to_string(),
-                b"creationDate" => creation_date = normalize_date(&val),
-                b"startDate" => start_date = normalize_date(&val),
-                b"endDate" => end_date = normalize_date(&val),
-                _ => {}
-            }
+    for attr in e.attributes().flatten() {
+        let key = attr.key.as_ref();
+        let val = String::from_utf8_lossy(&attr.value);
+        match key {
+            b"type" => hk_type = val.to_string(),
+            b"value" => value = val.to_string(),
+            b"creationDate" => creation_date = normalize_date(&val),
+            b"startDate" => start_date = normalize_date(&val),
+            b"endDate" => end_date = normalize_date(&val),
+            _ => {}
         }
     }
 
