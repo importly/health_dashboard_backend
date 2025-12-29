@@ -335,14 +335,14 @@ async fn export_data_handler(
         .await
         .map_err(|e| format!("Export failed: {}", e))?;
 
-    Ok(axum::response::Response::builder()
+    axum::response::Response::builder()
         .header("content-type", "text/csv")
         .header(
             "content-disposition",
             format!("attachment; filename=\"{}.csv\"", table),
         )
         .body(axum::body::Body::from(csv_data))
-        .map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Deserialize)]
