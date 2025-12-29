@@ -1,13 +1,17 @@
 use crate::db::{DbPool, Manifest};
 use anyhow::Result;
+use quick_xml::events::Event;
+use quick_xml::reader::Reader;
 use std::fs;
 use std::io::BufReader;
 use std::path::Path;
-use tracing::{info, error};
-use quick_xml::events::Event;
-use quick_xml::reader::Reader;
+use tracing::{error, info};
 
-pub async fn run_external_import(base_dir: &Path, pool: &DbPool, manifest: &Manifest) -> Result<()> {
+pub async fn run_external_import(
+    base_dir: &Path,
+    pool: &DbPool,
+    manifest: &Manifest,
+) -> Result<()> {
     let ext = match &manifest.external_sources {
         Some(e) => e,
         None => return Ok(()),
@@ -39,12 +43,15 @@ async fn import_ecgs(folder: &Path, cfg: &crate::db::EcgConfig, pool: &DbPool) -
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) == Some("csv") {
             let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-            
-            let exists: (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM {} WHERE file_name = ?", cfg.target_table))
-                .bind(&file_name)
-                .fetch_one(pool)
-                .await?;
-            
+
+            let exists: (i64,) = sqlx::query_as(&format!(
+                "SELECT COUNT(*) FROM {} WHERE file_name = ?",
+                cfg.target_table
+            ))
+            .bind(&file_name)
+            .fetch_one(pool)
+            .await?;
+
             if exists.0 > 0 {
                 continue;
             }
@@ -61,15 +68,15 @@ async fn import_ecgs(folder: &Path, cfg: &crate::db::EcgConfig, pool: &DbPool) -
 async fn process_single_ecg(path: &Path, cfg: &crate::db::EcgConfig, pool: &DbPool) -> Result<()> {
     let content = fs::read_to_string(path)?;
     let lines: Vec<&str> = content.lines().collect();
-    
+
     let mut metadata = std::collections::HashMap::new();
     let mut samples = Vec::new();
     let mut in_samples = false;
 
     for line in lines {
         let line = line.trim();
-        if line.is_empty() { 
-            continue; 
+        if line.is_empty() {
+            continue;
         }
 
         // Header section parsing
@@ -79,7 +86,8 @@ async fn process_single_ecg(path: &Path, cfg: &crate::db::EcgConfig, pool: &DbPo
             for m in &cfg.metadata_map {
                 if line.starts_with(&m.csv_key) {
                     if let Some((_, val)) = line.split_once(',') {
-                        metadata.insert(m.csv_key.clone(), val.trim_matches('"').trim().to_string());
+                        metadata
+                            .insert(m.csv_key.clone(), val.trim_matches('"').trim().to_string());
                         found_meta = true;
                         break;
                     }
@@ -92,7 +100,10 @@ async fn process_single_ecg(path: &Path, cfg: &crate::db::EcgConfig, pool: &DbPo
             }
 
             // If we hit a number or a minus sign at the start of a line after some headers, it's likely a sample
-            if !found_meta && !line.is_empty() && (line.chars().next().unwrap().is_ascii_digit() || line.starts_with('-')) {
+            if !found_meta
+                && !line.is_empty()
+                && (line.chars().next().unwrap().is_ascii_digit() || line.starts_with('-'))
+            {
                 in_samples = true;
                 samples.push(line.to_string());
             }
@@ -106,7 +117,10 @@ async fn process_single_ecg(path: &Path, cfg: &crate::db::EcgConfig, pool: &DbPo
     let file_name = path.file_name().unwrap().to_string_lossy().to_string();
 
     // Calculate derived metrics
-    let numeric_samples: Vec<f64> = samples.iter().filter_map(|s| s.parse::<f64>().ok()).collect();
+    let numeric_samples: Vec<f64> = samples
+        .iter()
+        .filter_map(|s| s.parse::<f64>().ok())
+        .collect();
     let sample_count = numeric_samples.len();
     let mean_voltage = if sample_count > 0 {
         numeric_samples.iter().sum::<f64>() / sample_count as f64
@@ -115,11 +129,12 @@ async fn process_single_ecg(path: &Path, cfg: &crate::db::EcgConfig, pool: &DbPo
     };
 
     // Calculate HR from ECG
-    let sample_rate_hz = metadata.get("Sample Rate")
+    let sample_rate_hz = metadata
+        .get("Sample Rate")
         .and_then(|s| s.split_whitespace().next())
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(512.0);
-    
+
     let calculated_hr = calculate_ecg_hr(&numeric_samples, sample_rate_hz);
 
     let mut col_names = vec![
@@ -143,7 +158,12 @@ async fn process_single_ecg(path: &Path, cfg: &crate::db::EcgConfig, pool: &DbPo
     values.push(payload);
 
     let placeholders: Vec<String> = (1..=col_names.len()).map(|_| "?".to_string()).collect();
-    let sql = format!("INSERT INTO {} ({}) VALUES ({})", cfg.target_table, col_names.join(", "), placeholders.join(", "));
+    let sql = format!(
+        "INSERT INTO {} ({}) VALUES ({})",
+        cfg.target_table,
+        col_names.join(", "),
+        placeholders.join(", ")
+    );
 
     let mut q = sqlx::query(&sql);
     for v in values {
@@ -154,7 +174,12 @@ async fn process_single_ecg(path: &Path, cfg: &crate::db::EcgConfig, pool: &DbPo
     Ok(())
 }
 
-async fn import_routes(folder: &Path, cfg: &crate::db::RouteConfig, pool: &DbPool, manifest: &Manifest) -> Result<()> {
+async fn import_routes(
+    folder: &Path,
+    cfg: &crate::db::RouteConfig,
+    pool: &DbPool,
+    manifest: &Manifest,
+) -> Result<()> {
     info!("Scanning for Routes in {:?}", folder);
     let entries = fs::read_dir(folder)?;
 
@@ -163,12 +188,15 @@ async fn import_routes(folder: &Path, cfg: &crate::db::RouteConfig, pool: &DbPoo
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) == Some("gpx") {
             let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-            
-            let exists: (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM {} WHERE file_name = ?", cfg.target_table))
-                .bind(&file_name)
-                .fetch_one(pool)
-                .await?;
-            
+
+            let exists: (i64,) = sqlx::query_as(&format!(
+                "SELECT COUNT(*) FROM {} WHERE file_name = ?",
+                cfg.target_table
+            ))
+            .bind(&file_name)
+            .fetch_one(pool)
+            .await?;
+
             if exists.0 > 0 {
                 continue;
             }
@@ -182,8 +210,15 @@ async fn import_routes(folder: &Path, cfg: &crate::db::RouteConfig, pool: &DbPoo
     Ok(())
 }
 
-async fn process_single_route(path: &Path, cfg: &crate::db::RouteConfig, pool: &DbPool, manifest: &Manifest) -> Result<()> {
-    let batch_size = manifest.settings.as_ref()
+async fn process_single_route(
+    path: &Path,
+    cfg: &crate::db::RouteConfig,
+    pool: &DbPool,
+    manifest: &Manifest,
+) -> Result<()> {
+    let batch_size = manifest
+        .settings
+        .as_ref()
         .and_then(|s| s.batch_size)
         .unwrap_or(5000);
 
@@ -206,8 +241,12 @@ async fn process_single_route(path: &Path, cfg: &crate::db::RouteConfig, pool: &
                         let attr = attr?;
                         let k = String::from_utf8_lossy(attr.key.as_ref());
                         let v = String::from_utf8_lossy(attr.value.as_ref()).to_string();
-                        if k == "lat" { map.insert("lat".to_string(), v.clone()); }
-                        if k == "lon" { map.insert("lon".to_string(), v); }
+                        if k == "lat" {
+                            map.insert("lat".to_string(), v.clone());
+                        }
+                        if k == "lon" {
+                            map.insert("lon".to_string(), v);
+                        }
                     }
                     current_point = Some(map);
                 }

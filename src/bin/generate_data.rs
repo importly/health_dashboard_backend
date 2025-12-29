@@ -1,6 +1,6 @@
+use chrono::{Duration, TimeZone, Utc};
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use chrono::{Duration, TimeZone, Utc};
 
 fn main() -> std::io::Result<()> {
     let file_path = "large_export.xml";
@@ -18,7 +18,7 @@ fn main() -> std::io::Result<()> {
     for i in 0..100_000 {
         let timestamp = start_time + Duration::minutes(i);
         let timestamp_str = timestamp.format("%Y-%m-%d %H:%M:%S %z").to_string();
-        
+
         // Alternate between HeartRate and Steps to fill multiple tables
         if i % 2 == 0 {
             // Heart Rate: 60 + sin wave variation

@@ -39,17 +39,18 @@ columns = [
     let (pool, manifest) = db::init_db(&db_url, &manifest_path).await?;
 
     // Ingest
-    let count = parser::parse_and_ingest(Path::new(&xml_path), &pool, &manifest, None::<fn(usize)>).await?;
+    let count =
+        parser::parse_and_ingest(Path::new(&xml_path), &pool, &manifest, None::<fn(usize)>).await?;
     assert_eq!(count, 3);
 
     // Verify Data
     let records = db::query_table(&pool, "records", 100, None, None, None).await?;
     assert_eq!(records.len(), 3);
 
-        // Verify Aggregation (Hourly)
-        // 10:00 EST is 15:00 UTC. 
-        // HR: (60+80)/2 = 70. Steps: 500.
-        let agg = db::aggregate_table(&pool, &manifest, "records", "hour", None, None).await?;
+    // Verify Aggregation (Hourly)
+    // 10:00 EST is 15:00 UTC.
+    // HR: (60+80)/2 = 70. Steps: 500.
+    let agg = db::aggregate_table(&pool, &manifest, "records", "hour", None, None).await?;
     // Check if we have the bucket
     // Note: Result is a Vec<Value>. We need to find the right bucket.
     // Since we only have one hour of data, it should be the first row.

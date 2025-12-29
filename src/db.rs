@@ -137,7 +137,7 @@ pub async fn query_table(
     end: Option<&str>,
 ) -> Result<Vec<Value>> {
     let sort_by = sort_col.unwrap_or("start_date");
-    
+
     let mut query_parts = Vec::new();
     if start.is_some() {
         query_parts.push(format!("{} >= ?", sort_by));
@@ -194,10 +194,7 @@ pub async fn query_table(
     Ok(results)
 }
 
-pub async fn get_workout_details(
-    pool: &DbPool,
-    session_id: &str,
-) -> Result<Value> {
+pub async fn get_workout_details(pool: &DbPool, session_id: &str) -> Result<Value> {
     // 1. Fetch workout
     let row = sqlx::query("SELECT * FROM workouts WHERE session_id = ?")
         .bind(session_id)
@@ -235,13 +232,19 @@ pub async fn get_workout_details(
             let lat = p_row.get::<f64, _>("latitude");
             let lon = p_row.get::<f64, _>("longitude");
             let elev = p_row.get::<f64, _>("elevation");
-            
+
             let mut p_map = Map::new();
-            p_map.insert("timestamp".to_string(), json!(p_row.get::<String, _>("timestamp")));
+            p_map.insert(
+                "timestamp".to_string(),
+                json!(p_row.get::<String, _>("timestamp")),
+            );
             p_map.insert("latitude".to_string(), json!(lat));
             p_map.insert("longitude".to_string(), json!(lon));
             p_map.insert("elevation".to_string(), json!(elev));
-            p_map.insert("speed_ms".to_string(), json!(p_row.get::<f64, _>("speed_ms")));
+            p_map.insert(
+                "speed_ms".to_string(),
+                json!(p_row.get::<f64, _>("speed_ms")),
+            );
             points_vec.push(Value::Object(p_map));
 
             if let Some((p_lat, p_lon, p_elev)) = prev_point {
@@ -253,8 +256,14 @@ pub async fn get_workout_details(
             prev_point = Some((lat, lon, elev));
         }
         workout_map.insert("route_points".to_string(), json!(points_vec));
-        workout_map.insert("calculated_distance_km".to_string(), json!(total_distance_m / 1000.0));
-        workout_map.insert("calculated_elevation_gain_m".to_string(), json!(total_elevation_gain_m));
+        workout_map.insert(
+            "calculated_distance_km".to_string(),
+            json!(total_distance_m / 1000.0),
+        );
+        workout_map.insert(
+            "calculated_elevation_gain_m".to_string(),
+            json!(total_elevation_gain_m),
+        );
     }
 
     Ok(Value::Object(workout_map))
@@ -267,17 +276,13 @@ fn calculate_haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let d_phi = (lat2 - lat1).to_radians();
     let d_lambda = (lon2 - lon1).to_radians();
 
-    let a = (d_phi / 2.0).sin().powi(2)
-        + phi1.cos() * phi2.cos() * (d_lambda / 2.0).sin().powi(2);
+    let a = (d_phi / 2.0).sin().powi(2) + phi1.cos() * phi2.cos() * (d_lambda / 2.0).sin().powi(2);
     let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
 
     r * c
 }
 
-pub async fn get_db_summary(
-    pool: &DbPool,
-    manifest: &Manifest,
-) -> Result<Value> {
+pub async fn get_db_summary(pool: &DbPool, manifest: &Manifest) -> Result<Value> {
     let mut summary = Map::new();
     let mut table_counts = Map::new();
 
@@ -293,23 +298,28 @@ pub async fn get_db_summary(
     // 2. External Tables
     if let Some(ext) = &manifest.external_sources {
         if let Some(ecg) = &ext.ecg {
-            let count: (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM {}", ecg.target_table))
-                .fetch_one(pool)
-                .await
-                .unwrap_or((0,));
+            let count: (i64,) =
+                sqlx::query_as(&format!("SELECT COUNT(*) FROM {}", ecg.target_table))
+                    .fetch_one(pool)
+                    .await
+                    .unwrap_or((0,));
             table_counts.insert(ecg.target_table.clone(), json!(count.0));
         }
         if let Some(routes) = &ext.routes {
-            let count: (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM {}", routes.target_table))
-                .fetch_one(pool)
-                .await
-                .unwrap_or((0,));
+            let count: (i64,) =
+                sqlx::query_as(&format!("SELECT COUNT(*) FROM {}", routes.target_table))
+                    .fetch_one(pool)
+                    .await
+                    .unwrap_or((0,));
             table_counts.insert(routes.target_table.clone(), json!(count.0));
         }
     }
 
     summary.insert("tables".to_string(), Value::Object(table_counts));
-    summary.insert("database_size_mb".to_string(), json!(fs::metadata("health.db")?.len() / 1024 / 1024));
+    summary.insert(
+        "database_size_mb".to_string(),
+        json!(fs::metadata("health.db")?.len() / 1024 / 1024),
+    );
 
     Ok(Value::Object(summary))
 }
@@ -320,11 +330,12 @@ pub async fn get_workout_intensity(
     session_id: &str,
 ) -> Result<Value> {
     // 1. Fetch workout range
-    let workout: (String, String) = sqlx::query_as("SELECT start_date, end_date FROM workouts WHERE session_id = ?")
-        .bind(session_id)
-        .fetch_one(pool)
-        .await
-        .context("Workout not found")?;
+    let workout: (String, String) =
+        sqlx::query_as("SELECT start_date, end_date FROM workouts WHERE session_id = ?")
+            .bind(session_id)
+            .fetch_one(pool)
+            .await
+            .context("Workout not found")?;
 
     // 2. Fetch HR samples during workout
     let samples: Vec<(f64,)> = sqlx::query_as("SELECT heart_rate FROM vitals WHERE heart_rate > 0 AND start_date >= ? AND start_date <= ?")
@@ -333,14 +344,18 @@ pub async fn get_workout_intensity(
         .fetch_all(pool)
         .await?;
 
-    let max_hr = manifest.user_profile.as_ref().and_then(|u| u.max_heart_rate).unwrap_or(190) as f64;
+    let max_hr = manifest
+        .user_profile
+        .as_ref()
+        .and_then(|u| u.max_heart_rate)
+        .unwrap_or(190) as f64;
 
     let mut zones = HashMap::new();
-    zones.insert("Z1_Recovery", 0);   // < 60%
-    zones.insert("Z2_Aerobic", 0);    // 60-70%
-    zones.insert("Z3_Steady", 0);     // 70-80%
-    zones.insert("Z4_Threshold", 0);  // 80-90%
-    zones.insert("Z5_Anaerobic", 0);  // > 90%
+    zones.insert("Z1_Recovery", 0); // < 60%
+    zones.insert("Z2_Aerobic", 0); // 60-70%
+    zones.insert("Z3_Steady", 0); // 70-80%
+    zones.insert("Z4_Threshold", 0); // 80-90%
+    zones.insert("Z5_Anaerobic", 0); // > 90%
 
     for (hr,) in &samples {
         let pct = (hr / max_hr) * 100.0;
@@ -362,14 +377,9 @@ pub async fn get_workout_intensity(
     }))
 }
 
-pub async fn export_table_to_csv(
-    pool: &DbPool,
-    table_name: &str,
-) -> Result<String> {
+pub async fn export_table_to_csv(pool: &DbPool, table_name: &str) -> Result<String> {
     let sql = format!("SELECT * FROM {}", table_name);
-    let rows = sqlx::query(&sql)
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(&sql).fetch_all(pool).await?;
 
     let mut wtr = csv::Writer::from_writer(vec![]);
 
@@ -397,7 +407,9 @@ pub async fn export_table_to_csv(
         }
     }
 
-    let inner = wtr.into_inner().map_err(|e| anyhow::anyhow!("CSV error: {}", e))?;
+    let inner = wtr
+        .into_inner()
+        .map_err(|e| anyhow::anyhow!("CSV error: {}", e))?;
     Ok(String::from_utf8(inner)?)
 }
 
@@ -506,7 +518,9 @@ pub async fn get_biometric_trends(
     start: &str,
     end: &str,
 ) -> Result<Value> {
-    let table_config = manifest.tables.get("vitals")
+    let table_config = manifest
+        .tables
+        .get("vitals")
         .ok_or_else(|| anyhow::anyhow!("Vitals table not found in manifest"))?;
 
     let mut select_parts = Vec::new();
@@ -546,9 +560,7 @@ pub async fn get_biometric_trends(
     Ok(Value::Object(map))
 }
 
-pub async fn get_recovery_analysis(
-    pool: &DbPool,
-) -> Result<Value> {
+pub async fn get_recovery_analysis(pool: &DbPool) -> Result<Value> {
     // 1. Get 7-day HRV Baseline
     let baseline_hrv: (f64,) = sqlx::query_as(
         "SELECT AVG(hrv_sdnn) FROM vitals WHERE hrv_sdnn > 0 AND start_date >= date('now', '-7 days')"
@@ -581,7 +593,7 @@ pub async fn get_recovery_analysis(
     .unwrap_or((0.0,));
 
     // Simple Recovery Logic
-    let mut score = 0.0;
+    let mut score: f64 = 0.0;
     if baseline_hrv.0 > 0.0 {
         score = (current_hrv.0 / baseline_hrv.0) * 100.0;
     }
@@ -620,7 +632,7 @@ pub async fn get_sleep_summary(
     // 1. Fetch all sleep records for the window (e.g. 6PM previous day to 12PM current day)
     // For simplicity, we'll just use the provided date string as a start_date prefix
     let sql = "SELECT sleep_stage, start_date, end_date FROM sleep WHERE start_date LIKE ? ORDER BY start_date ASC";
-    
+
     let rows = sqlx::query(sql)
         .bind(format!("{}%", date))
         .fetch_all(pool)
@@ -634,7 +646,10 @@ pub async fn get_sleep_summary(
         let start: String = row.get("start_date");
         let end: String = row.get("end_date");
 
-        if let (Ok(s_dt), Ok(e_dt)) = (DateTime::parse_from_rfc3339(&start), DateTime::parse_from_rfc3339(&end)) {
+        if let (Ok(s_dt), Ok(e_dt)) = (
+            DateTime::parse_from_rfc3339(&start),
+            DateTime::parse_from_rfc3339(&end),
+        ) {
             let duration = e_dt.signed_duration_since(s_dt).num_seconds() as f64;
             let stage_name = match stage {
                 0 => "In Bed",
@@ -645,7 +660,7 @@ pub async fn get_sleep_summary(
                 5 => "REM",
                 _ => "Unknown",
             };
-            
+
             *staging_seconds.entry(stage_name.to_string()).or_insert(0.0) += duration;
             total_seconds += duration;
         }
@@ -682,9 +697,16 @@ async fn ensure_external_schema(pool: &DbPool, manifest: &Manifest) -> Result<()
             for m in &ecg.metadata_map {
                 cols.push(format!("{} {}", m.db_column, m.data_type));
             }
-            cols.push(format!("{} {}", ecg.payload.db_column, ecg.payload.data_type));
+            cols.push(format!(
+                "{} {}",
+                ecg.payload.db_column, ecg.payload.data_type
+            ));
 
-            let sql = format!("CREATE TABLE IF NOT EXISTS {} ({})", ecg.target_table, cols.join(", "));
+            let sql = format!(
+                "CREATE TABLE IF NOT EXISTS {} ({})",
+                ecg.target_table,
+                cols.join(", ")
+            );
             sqlx::query(&sql).execute(pool).await?;
         }
 
@@ -697,10 +719,17 @@ async fn ensure_external_schema(pool: &DbPool, manifest: &Manifest) -> Result<()
                 cols.push(format!("{} {}", c.db_column, c.data_type));
             }
 
-            let sql = format!("CREATE TABLE IF NOT EXISTS {} ({})", routes.target_table, cols.join(", "));
+            let sql = format!(
+                "CREATE TABLE IF NOT EXISTS {} ({})",
+                routes.target_table,
+                cols.join(", ")
+            );
             sqlx::query(&sql).execute(pool).await?;
-            
-            let idx_sql = format!("CREATE INDEX IF NOT EXISTS idx_{}_ts ON {} (timestamp)", routes.target_table, routes.target_table);
+
+            let idx_sql = format!(
+                "CREATE INDEX IF NOT EXISTS idx_{}_ts ON {} (timestamp)",
+                routes.target_table, routes.target_table
+            );
             let _ = sqlx::query(&idx_sql).execute(pool).await;
         }
     }
@@ -710,7 +739,7 @@ async fn ensure_external_schema(pool: &DbPool, manifest: &Manifest) -> Result<()
 async fn ensure_schema(pool: &DbPool, manifest: &Manifest) -> Result<()> {
     for (table_name, table_config) in &manifest.tables {
         let pk_col = table_config.columns.iter().find(|c| c.is_primary_key);
-        
+
         let create_sql = if let Some(pk) = pk_col {
             format!(
                 "CREATE TABLE IF NOT EXISTS {} ({} {} PRIMARY KEY, creation_date TEXT, start_date TEXT, end_date TEXT)",

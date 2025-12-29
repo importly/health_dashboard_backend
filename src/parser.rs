@@ -1,8 +1,8 @@
 use crate::db::{DbPool, Manifest};
 use chrono::{DateTime, Utc};
-use sha2::Digest;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
+use sha2::Digest;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
@@ -20,7 +20,9 @@ pub async fn parse_and_ingest(
     manifest: &Manifest,
     on_progress: Option<impl Fn(usize) + Send + Sync>,
 ) -> anyhow::Result<usize> {
-    let batch_size = manifest.settings.as_ref()
+    let batch_size = manifest
+        .settings
+        .as_ref()
         .and_then(|s| s.batch_size)
         .unwrap_or(5000);
 
@@ -37,11 +39,15 @@ pub async fn parse_and_ingest(
     for (table_name, config) in &manifest.tables {
         for col in &config.columns {
             if let Some(hk_id) = &col.hk_identifier {
-                if col.extraction_source.is_none() || col.extraction_source.as_deref() == Some("value") {
-                     record_map.insert(hk_id.clone(), (table_name.clone(), col.field_name.clone()));
+                if col.extraction_source.is_none()
+                    || col.extraction_source.as_deref() == Some("value")
+                {
+                    record_map.insert(hk_id.clone(), (table_name.clone(), col.field_name.clone()));
                 }
             }
-            table_buffers.entry(table_name.clone()).or_insert_with(|| Vec::with_capacity(batch_size));
+            table_buffers
+                .entry(table_name.clone())
+                .or_insert_with(|| Vec::with_capacity(batch_size));
         }
     }
 
@@ -74,7 +80,10 @@ pub async fn parse_and_ingest(
                         }
                     }
                     if let Some(buffer) = table_buffers.get_mut("activity_summaries") {
-                        buffer.push(DataPoint { table_name: "activity_summaries".to_string(), columns: summary_data });
+                        buffer.push(DataPoint {
+                            table_name: "activity_summaries".to_string(),
+                            columns: summary_data,
+                        });
                     }
                 }
             }
@@ -99,7 +108,7 @@ pub async fn parse_and_ingest(
                         let attr = attr?;
                         let key = String::from_utf8_lossy(attr.key.as_ref());
                         let val = String::from_utf8_lossy(attr.value.as_ref()).to_string();
-                        
+
                         match key.as_ref() {
                             "startDate" => start_date_raw = val.clone(),
                             "endDate" => end_date_raw = val.clone(),
@@ -113,7 +122,8 @@ pub async fn parse_and_ingest(
                                     if col.extraction_source.as_deref() == Some("attribute") {
                                         if let Some(hk_attr) = &col.hk_attribute {
                                             if hk_attr == &key {
-                                                workout_data.insert(col.field_name.clone(), val.clone());
+                                                workout_data
+                                                    .insert(col.field_name.clone(), val.clone());
                                             }
                                         }
                                     }
@@ -124,7 +134,10 @@ pub async fn parse_and_ingest(
 
                     workout_data.insert("start_date".to_string(), normalize_date(&start_date_raw));
                     workout_data.insert("end_date".to_string(), normalize_date(&end_date_raw));
-                    workout_data.insert("creation_date".to_string(), normalize_date(&creation_date_raw));
+                    workout_data.insert(
+                        "creation_date".to_string(),
+                        normalize_date(&creation_date_raw),
+                    );
 
                     let mut child_buf = Vec::new();
                     loop {
@@ -137,16 +150,24 @@ pub async fn parse_and_ingest(
                                     for attr in ce.attributes() {
                                         let attr = attr?;
                                         match attr.key.as_ref() {
-                                            b"type" => stat_type = String::from_utf8_lossy(&attr.value).to_string(),
-                                            b"sum" => stat_sum = String::from_utf8_lossy(&attr.value).to_string(),
+                                            b"type" => {
+                                                stat_type =
+                                                    String::from_utf8_lossy(&attr.value).to_string()
+                                            }
+                                            b"sum" => {
+                                                stat_sum =
+                                                    String::from_utf8_lossy(&attr.value).to_string()
+                                            }
                                             _ => {}
                                         }
                                     }
                                     for col in &manifest.tables["workouts"].columns {
-                                        if col.extraction_source.as_deref() == Some("statistics_sum") {
-                                            if col.hk_identifier.as_ref() == Some(&stat_type) {
-                                                workout_data.insert(col.field_name.clone(), stat_sum.clone());
-                                            }
+                                        if col.extraction_source.as_deref()
+                                            == Some("statistics_sum")
+                                            && col.hk_identifier.as_ref() == Some(&stat_type)
+                                        {
+                                            workout_data
+                                                .insert(col.field_name.clone(), stat_sum.clone());
                                         }
                                     }
                                 } else if cname.as_ref() == b"MetadataEntry" {
@@ -155,27 +176,45 @@ pub async fn parse_and_ingest(
                                     for attr in ce.attributes() {
                                         let attr = attr?;
                                         match attr.key.as_ref() {
-                                            b"key" => mkey = String::from_utf8_lossy(&attr.value).to_string(),
-                                            b"value" => mval = String::from_utf8_lossy(&attr.value).to_string(),
+                                            b"key" => {
+                                                mkey =
+                                                    String::from_utf8_lossy(&attr.value).to_string()
+                                            }
+                                            b"value" => {
+                                                mval =
+                                                    String::from_utf8_lossy(&attr.value).to_string()
+                                            }
                                             _ => {}
                                         }
                                     }
                                     for col in &manifest.tables["workouts"].columns {
-                                        if col.extraction_source.as_deref() == Some("metadata_value") {
-                                            if col.hk_identifier.as_ref() == Some(&mkey) {
-                                                workout_data.insert(col.field_name.clone(), mval.clone());
-                                            }
+                                        if col.extraction_source.as_deref()
+                                            == Some("metadata_value")
+                                            && col.hk_identifier.as_ref() == Some(&mkey)
+                                        {
+                                            workout_data
+                                                .insert(col.field_name.clone(), mval.clone());
                                         }
                                     }
                                 } else if cname.as_ref() == b"FileReference" {
                                     for attr in ce.attributes() {
                                         let attr = attr?;
                                         if attr.key.as_ref() == b"path" {
-                                            let path_val = String::from_utf8_lossy(&attr.value).to_string();
-                                            let file_name = Path::new(&path_val).file_name().unwrap_or_default().to_string_lossy().to_string();
+                                            let path_val =
+                                                String::from_utf8_lossy(&attr.value).to_string();
+                                            let file_name = Path::new(&path_val)
+                                                .file_name()
+                                                .unwrap_or_default()
+                                                .to_string_lossy()
+                                                .to_string();
                                             for col in &manifest.tables["workouts"].columns {
-                                                if col.extraction_source.as_deref() == Some("route_ref") {
-                                                    workout_data.insert(col.field_name.clone(), file_name.clone());
+                                                if col.extraction_source.as_deref()
+                                                    == Some("route_ref")
+                                                {
+                                                    workout_data.insert(
+                                                        col.field_name.clone(),
+                                                        file_name.clone(),
+                                                    );
                                                 }
                                             }
                                         }
@@ -191,7 +230,10 @@ pub async fn parse_and_ingest(
                     }
 
                     if let Some(buffer) = table_buffers.get_mut("workouts") {
-                        buffer.push(DataPoint { table_name: "workouts".to_string(), columns: workout_data });
+                        buffer.push(DataPoint {
+                            table_name: "workouts".to_string(),
+                            columns: workout_data,
+                        });
                     }
                 }
             }
@@ -241,7 +283,10 @@ pub async fn parse_and_ingest(
     Ok(total_count)
 }
 
-fn extract_record_data(e: &BytesStart, record_map: &HashMap<String, (String, String)>) -> Option<DataPoint> {
+fn extract_record_data(
+    e: &BytesStart,
+    record_map: &HashMap<String, (String, String)>,
+) -> Option<DataPoint> {
     let mut hk_type = String::new();
     let mut value = String::new();
     let mut creation_date = String::new();
@@ -280,7 +325,10 @@ fn extract_record_data(e: &BytesStart, record_map: &HashMap<String, (String, Str
         columns.insert("end_date".to_string(), end_date);
         columns.insert(col_name.clone(), value);
 
-        Some(DataPoint { table_name: table_name.clone(), columns })
+        Some(DataPoint {
+            table_name: table_name.clone(),
+            columns,
+        })
     } else {
         None
     }

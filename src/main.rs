@@ -4,13 +4,13 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
-use tracing::{error, info};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
+use tracing::{error, info};
 
 use backend::db::{self, DbPool, Manifest};
 use backend::importer;
@@ -19,9 +19,16 @@ use backend::parser;
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
 enum JobStatus {
-    Processing { progress: usize, total: Option<usize> },
-    Completed { records_processed: usize },
-    Failed { error: String },
+    Processing {
+        progress: usize,
+        total: Option<usize>,
+    },
+    Completed {
+        records_processed: usize,
+    },
+    Failed {
+        error: String,
+    },
 }
 
 struct AppState {
@@ -50,8 +57,8 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Database initialized and schema verified.");
 
-    let shared_state = Arc::new(AppState { 
-        pool, 
+    let shared_state = Arc::new(AppState {
+        pool,
         manifest,
         jobs: RwLock::new(HashMap::new()),
     });
@@ -70,7 +77,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/import/external", post(external_import_handler))
         .route("/api/ecg/{id}", get(get_ecg_handler))
         .route("/api/workouts/{id}", get(get_workout_details_handler))
-        .route("/api/workouts/{id}/intensity", get(get_workout_intensity_handler))
+        .route(
+            "/api/workouts/{id}/intensity",
+            get(get_workout_intensity_handler),
+        )
         .route("/api/summary", get(get_summary_handler))
         .route("/api/export/{table}", get(export_data_handler))
         .route("/api/trends", get(get_trends_handler))
@@ -125,44 +135,73 @@ async fn ingest_handler(
     }
 
     let job_id = uuid::Uuid::new_v4().to_string();
-    
+
     // Initialize job status
     {
         let mut jobs = state.jobs.write().await;
-        jobs.insert(job_id.clone(), JobStatus::Processing { progress: 0, total: None });
+        jobs.insert(
+            job_id.clone(),
+            JobStatus::Processing {
+                progress: 0,
+                total: None,
+            },
+        );
     }
 
     // Spawn background task
     let job_id_task = job_id.clone();
     let state_task = Arc::clone(&state);
-    
+
     tokio::spawn(async move {
         // We wrap the progress update in a closure that handles the async write lock
         let progress_job_id = job_id_task.clone();
         let progress_state = Arc::clone(&state_task);
-        
+
         let on_progress = move |count: usize| {
             // Since on_progress is called from synchronous context inside parse_and_ingest loop (for performance),
-            // we use a background task or blocking write if necessary. 
+            // we use a background task or blocking write if necessary.
             // Better: use a channel or just use a sync-safe way to update status.
             // For now, let's keep it simple and use a runtime handle.
             let inner_state = Arc::clone(&progress_state);
             let inner_job_id = progress_job_id.clone();
             tokio::spawn(async move {
                 let mut jobs = inner_state.jobs.write().await;
-                jobs.insert(inner_job_id, JobStatus::Processing { progress: count, total: None });
+                jobs.insert(
+                    inner_job_id,
+                    JobStatus::Processing {
+                        progress: count,
+                        total: None,
+                    },
+                );
             });
         };
 
-        match parser::parse_and_ingest(&path, &state_task.pool, &state_task.manifest, Some(on_progress)).await {
+        match parser::parse_and_ingest(
+            &path,
+            &state_task.pool,
+            &state_task.manifest,
+            Some(on_progress),
+        )
+        .await
+        {
             Ok(count) => {
                 let mut jobs = state_task.jobs.write().await;
-                jobs.insert(job_id_task, JobStatus::Completed { records_processed: count });
+                jobs.insert(
+                    job_id_task,
+                    JobStatus::Completed {
+                        records_processed: count,
+                    },
+                );
             }
             Err(e) => {
                 error!("Ingestion failed for job {}: {:?}", job_id_task, e);
                 let mut jobs = state_task.jobs.write().await;
-                jobs.insert(job_id_task, JobStatus::Failed { error: e.to_string() });
+                jobs.insert(
+                    job_id_task,
+                    JobStatus::Failed {
+                        error: e.to_string(),
+                    },
+                );
             }
         }
     });
@@ -298,7 +337,10 @@ async fn export_data_handler(
 
     Ok(axum::response::Response::builder()
         .header("content-type", "text/csv")
-        .header("content-disposition", format!("attachment; filename=\"{}.csv\"", table))
+        .header(
+            "content-disposition",
+            format!("attachment; filename=\"{}.csv\"", table),
+        )
         .body(axum::body::Body::from(csv_data))
         .map_err(|e| e.to_string())?)
 }
